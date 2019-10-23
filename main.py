@@ -65,7 +65,7 @@ def main():
     adv = FGSM(
             model,
             test_data,
-            eps = 0.25,
+            eps = 0.5,
             norm = np.inf,
             clip_min = -1.,
             clip_max = 1.,
@@ -87,10 +87,14 @@ def main():
                 np.mean(np.argmax(dknn_preds, axis=1) == y_test))
         if not os.path.exists('diagram'):
             os.mkdir('diagram')
-        plot_reliability_diagram(dknn_preds,
-                y_test, 'diagram/dknn_' + fname + '.png')
+        print('----------------------------------------------------------------')
+        print('Plotting dnn diagrams...')
         plot_reliability_diagram(preds,
                 y_test, 'diagram/dnn_' + fname + '.png')
+        print('----------------------------------------------------------------')
+        print('Plotting dknn diagrams...')
+        plot_reliability_diagram(dknn_preds,
+                y_test, 'diagram/dknn_' + fname + '.png')
         end = time.time()
         print('Test on {} completed! Time cost: {}s'.format(fname, end-start))
 

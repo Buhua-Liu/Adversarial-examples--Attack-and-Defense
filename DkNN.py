@@ -394,8 +394,6 @@ def plot_reliability_diagram(confidence, labels, filepath):
   :param filepath: where to save the diagram
   :return:
   """
-  print('----------------------------------------------------------------')
-  print('Plotting diagrams...')
   assert len(confidence.shape) == 2
   assert len(labels.shape) == 1
   assert confidence.shape[0] == labels.shape[0]

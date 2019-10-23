@@ -113,7 +113,7 @@ def optimize_linear(grad, eps, norm=np.inf):
     # `optimal_perturbation` is the output of a `sign` op, which has zero derivative anyway.
     # It should not be applied for the other norms, where the perturbation has a non-zero derivative.
     optimal_perturbation = tf.stop_gradient(optimal_perturbation)
-  elif norm == 1:
+elif norm == 0:
     abs_grad = tf.abs(grad)
     sign = tf.sign(grad)
     max_abs_grad = tf.reduce_max(abs_grad, axis, keepdims=True)
@@ -124,7 +124,7 @@ def optimize_linear(grad, eps, norm=np.inf):
     square = tf.maximum(avoid_zero_div, tf.reduce_sum(tf.square(grad), axis, keepdims=True))
     optimal_perturbation = grad / tf.sqrt(square)
   else:
-    raise NotImplementedError("Only L-inf, L1 and L2 norms are currently implemented.")
+    raise NotImplementedError("Only L-inf, L0 and L2 norms are currently implemented.")
 
   # Scale perturbation to be the solution for the norm=eps rather than norm=1 problem
   scaled_perturbation = tf.multiply(eps, optimal_perturbation)
