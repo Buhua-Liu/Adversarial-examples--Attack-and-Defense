@@ -5,6 +5,8 @@ https://arxiv.org/abs/1803.04765
 
 The LSH backend used in the paper is FALCONN. This script also demonstrates
 how to use an alternative backend called FAISS.
+
+Code source: https://github.com/tensorflow/cleverhans/tree/master/cleverhans/model_zoo
 """
 # pylint: disable=missing-docstring
 from __future__ import absolute_import
@@ -13,21 +15,19 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import copy
-import os
 from bisect import bisect_left
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from six.moves import xrange
-import enum
+from enum import Enum
 import tensorflow as tf
+import time
 
-if 'DISPLAY' not in os.environ:
-  matplotlib.use('Agg')
 
 
 class NearestNeighbor:
-  class BACKEND(enum.Enum):
+  class BACKEND(Enum):
     FALCONN = 1
     FAISS = 2
 
@@ -112,6 +112,8 @@ class NearestNeighbor:
 
     missing_indices = np.zeros(output.shape, dtype=np.bool)
 
+    print('Finding k-nearest neighbors with FALCONN...')
+    start = time.time()
     for i in range(x.shape[0]):
       query_res = self._falconn_query_object.find_k_nearest_neighbors(
         x[i],
@@ -124,7 +126,8 @@ class NearestNeighbor:
         missing_indices[i, len(query_res):] = True
 
         output[i, :len(query_res)] = query_res
-
+    end = time.time()
+    print('Search completed! Time cost:', end-start, 's')
     return missing_indices
 
   def _find_knns_faiss(self, x, output):
@@ -175,7 +178,7 @@ class DkNNModel(object):
     :param train_labels: a np vector of training labels.
     :param nb_classes: the number of classes in the task.
     :param nb_tables: number of tables used by FALCONN to perform locality-sensitive hashing.
-    :param number_bits: number of hash bits used by LSH.
+    :param number_bits: number of hash bits used by LSH Index.
     """
     self.neighbors = neighbors
     self.layers = layers
@@ -190,12 +193,22 @@ class DkNNModel(object):
     # Compute training data activations
     self.nb_train = train_labels.shape[0]
     assert self.nb_train == train_data.shape[0]
+    print('================================================================')
+    print('Computing activations of the training data...')
+    start = time.time()
     self.train_activations = get_activations(train_data)
+    end = time.time()
+    print('Computation done! Time cost:', end - start, 's.')
     self.train_labels = train_labels
 
     # Build locality-sensitive hashing tables for training representations
     self.train_activations_lsh = copy.copy(self.train_activations)
+    print('================================================================')
+    print('Initializing locality-sensitive hashing with FALCONN...')
+    start = time.time()
     self.init_lsh()
+    end = time.time()
+    print('Initialization completed! Time cost:', end - start, 's.')
 
   def init_lsh(self):
     """
@@ -208,6 +221,7 @@ class DkNNModel(object):
     self.centers = {}
     for layer in self.layers:
       # Normalize all the lenghts, since we care about the cosine similarity.
+      # The default order of the norm is Frobenius norm
       self.train_activations_lsh[layer] /= np.linalg.norm(
           self.train_activations_lsh[layer], axis=1).reshape(-1, 1)
 
@@ -215,18 +229,20 @@ class DkNNModel(object):
       center = np.mean(self.train_activations_lsh[layer], axis=0)
       self.train_activations_lsh[layer] -= center
       self.centers[layer] = center
-
-      print('Constructing the NearestNeighbor table')
+      print('-------------------For layer {}:-------------------'.format(layer))
+      print('Constructing the NearestNeighbor table...')
+      t1 = time.time()
       self.query_objects[layer] = NearestNeighbor(
-        #backend=FLAGS.nearest_neighbor_backend,
         backend=NearestNeighbor.BACKEND.FALCONN,
         dimension=self.train_activations_lsh[layer].shape[1],
-        number_bits=self.number_bits,
         neighbors=self.neighbors,
+        number_bits=self.number_bits,
         nb_tables=self.nb_tables
       )
 
       self.query_objects[layer].add(self.train_activations_lsh[layer])
+      t2 = time.time()
+      print('Table constructed！Time cost:', t2-t1, 's.')
 
   def find_train_knns(self, data_activations):
     """
@@ -247,14 +263,14 @@ class DkNNModel(object):
       # Use FALCONN to find indices of nearest neighbors in training data.
       knns_ind[layer] = np.zeros(
           (data_activations_layer.shape[0], self.neighbors), dtype=np.int32)
-      knn_errors = 0
-
+      # knn_errors = 0
+      print('-------------------For layer {}:-------------------'.format(layer))
       knn_missing_indices = self.query_objects[layer].find_knns(
         data_activations_layer,
         knns_ind[layer],
       )
 
-      knn_errors += knn_missing_indices.flatten().sum()
+      # knn_errors += knn_missing_indices.flatten().sum()
 
       # Find labels of neighbors found in the training data.
       knns_labels[layer] = np.zeros((nb_data, self.neighbors), dtype=np.int32)
@@ -286,6 +302,7 @@ class DkNNModel(object):
       knns_in_class = np.zeros(
           (len(self.layers), self.nb_classes), dtype=np.int32)
       for layer_id, layer in enumerate(self.layers):
+        # Count number of occurrences of each value in array of non-negative ints.
         knns_in_class[layer_id, :] = np.bincount(
             knns_labels[layer][i], minlength=self.nb_classes)
 
@@ -316,7 +333,7 @@ class DkNNModel(object):
 
       preds_knn[i] = np.argmax(p_value)
       confs[i, preds_knn[i]] = 1. - np.sort(p_value)[-2]
-      creds[i, preds_knn[i]] = p_value[preds_knn[i]]
+      creds[i, preds_knn[i]] = p_value[preds_knn[i]] #np.max(p_value)
     return preds_knn, confs, creds
 
   def fprop_np(self, data_np):
@@ -332,14 +349,6 @@ class DkNNModel(object):
     _, _, creds = self.preds_conf_cred(knns_not_in_class)
     return creds
 
-  def fprop(self, x):
-    """
-    Performs a forward pass through the DkNN on a TF tensor by wrapping
-    the fprop_np method.
-    """
-    logits = tf.py_func(self.fprop_np, [x], tf.float32)
-    return {self.O_LOGITS: logits}
-
   def calibrate(self, cali_data, cali_labels):
     """
     Runs the DkNN on holdout data to calibrate the credibility metric.
@@ -347,10 +356,15 @@ class DkNNModel(object):
     :param cali_labels: np vector of calibration labels.
     """
     self.nb_cali = cali_labels.shape[0]
+    print('================================================================')
+    print("Starting calibration of DkNN...")
+    print('Computing activations of the calibration data...')
+    start = time.time()
     self.cali_activations = self.get_activations(cali_data)
+    end = time.time()
+    print('Computation done! Time cost:', end - start, 's.')
     self.cali_labels = cali_labels
 
-    print("Starting calibration of DkNN.")
     cali_knns_ind, cali_knns_labels = self.find_train_knns(
         self.cali_activations)
     assert all([v.shape == (self.nb_cali, self.neighbors)
@@ -365,8 +379,10 @@ class DkNNModel(object):
     cali_knns_not_in_l_sorted = np.sort(cali_knns_not_in_l)
     self.cali_nonconformity = np.trim_zeros(cali_knns_not_in_l_sorted, trim='f')
     self.nb_cali = self.cali_nonconformity.shape[0]
+    print('nb_cali:', self.nb_cali)
     self.calibrated = True
-    print("DkNN calibration complete.")
+    end = time.time()
+    print("DkNN calibration completed! Time cost:", end - start, 's.')
 
 
 def plot_reliability_diagram(confidence, labels, filepath):
@@ -378,10 +394,11 @@ def plot_reliability_diagram(confidence, labels, filepath):
   :param filepath: where to save the diagram
   :return:
   """
+  print('----------------------------------------------------------------')
+  print('Plotting diagrams...')
   assert len(confidence.shape) == 2
   assert len(labels.shape) == 1
   assert confidence.shape[0] == labels.shape[0]
-  print('Saving reliability diagram at: ' + str(filepath))
   if confidence.max() <= 1.:
         # confidence array is output of softmax
     bins_start = [b / 10. for b in xrange(0, 10)]
@@ -392,7 +409,7 @@ def plot_reliability_diagram(confidence, labels, filepath):
   else:
     raise ValueError('Confidence values go above 1.')
 
-  print(preds_conf.shape, preds_l.shape)
+  #print(preds_conf.shape, preds_l.shape)
 
   # Create var for reliability diagram
   # Will contain mean accuracies for each bin
@@ -413,20 +430,20 @@ def plot_reliability_diagram(confidence, labels, filepath):
 
   # Plot diagram
   assert len(reliability_diag) == len(bins_center)
-  print(reliability_diag)
-  print(bins_center)
-  print(num_points)
+  # print(reliability_diag)
+  # print(bins_center)
+  # print(num_points)
   fig, ax1 = plt.subplots()
   _ = ax1.bar(bins_center, reliability_diag, width=.1, alpha=0.8)
   plt.xlim([0, 1.])
   ax1.set_ylim([0, 1.])
 
   ax2 = ax1.twinx()
-  print(sum(num_points))
+  #print(sum(num_points))
   ax2.plot(bins_center, num_points, color='r', linestyle='-', linewidth=7.0)
   ax2.set_ylabel('Number of points in the data', fontsize=16, color='r')
 
-  if len(np.argwhere(confidence[0] != 0.)) == 1:
+  if len(tf.where(confidence[0] != 0.)) == 1: #np.argwhere
     # This is a DkNN diagram
     ax1.set_xlabel('Prediction Credibility', fontsize=16)
   else:
@@ -437,3 +454,4 @@ def plot_reliability_diagram(confidence, labels, filepath):
   ax2.tick_params(axis='both', labelsize=14, colors='r')
   fig.tight_layout()
   plt.savefig(filepath, bbox_inches='tight')
+  print('Saving reliability diagram at: ' + str(filepath))
