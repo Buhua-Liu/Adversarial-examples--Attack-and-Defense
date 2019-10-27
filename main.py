@@ -65,7 +65,7 @@ def main():
     adv = FGSM(
             model,
             test_data,
-            eps = 0.25,
+            eps = 0.5,
             norm = np.inf,
             clip_min = -1.,
             clip_max = 1.,
