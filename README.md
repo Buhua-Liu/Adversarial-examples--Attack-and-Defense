@@ -1,4 +1,4 @@
-# Adversarial examples: Attack and Denfense
+# Adversarial examples: Attack and Defense
  This repo reproduces some attack and denfense methods of
   adversarial examples with tensorflow2.0.
 
