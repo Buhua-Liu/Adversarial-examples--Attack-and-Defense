@@ -1,5 +1,5 @@
 # Adversarial examples: Attack and Defense
- This repo reproduces some attack and denfense methods of
+ This repo reproduces some attack and defense methods of
   adversarial examples with tensorflow2.0.
 
 ## DkNN tutorial:
