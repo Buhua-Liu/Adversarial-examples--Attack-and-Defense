@@ -4,6 +4,7 @@
 
 ## DkNN tutorial:
 See *Project_Report_on_DkNN.pdf* for an introduction
+
 Environments: *falconn* (perform LSH to find k-nearest neighbors)
  1. Run **training.py** to get the trained model(mnist.h5)
  2. Run **main.py** (falconn, FGSM)
